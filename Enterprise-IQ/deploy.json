@@ -53,7 +53,7 @@
 
     "FoundryServicesName": "[concat('foundryservices-', parameters('DeploymentID'))]",
     "FoundryProjectName": "[concat('projdefault-', parameters('DeploymentID'))]",
-    "foundryChildDeploymentName": "[concat('foundry-children-', parameters('DeploymentID'))]",
+    "foundryWaitScriptName": "[concat('foundry-wait-', parameters('DeploymentID'))]",
 
     "fabricCapacityName": "[concat('fabric', parameters('DeploymentID'))]"
   },
@@ -297,100 +297,80 @@
         "customSubDomainName": "[variables('FoundryServicesName')]"
       }
     },
-
     {
-      "type": "Microsoft.Resources/deployments",
-      "apiVersion": "2024-03-01",
-      "name": "[variables('foundryChildDeploymentName')]",
-      "comments": "Model deployments and project run in a separate nested deployment that starts only after the Foundry account has finished provisioning.",
+      "type": "Microsoft.Resources/deploymentScripts",
+      "apiVersion": "2023-08-01",
+      "name": "[variables('foundryWaitScriptName')]",
+      "location": "[variables('location')]",
+      "kind": "AzurePowerShell",
       "dependsOn": [
         "[resourceId('Microsoft.CognitiveServices/accounts', variables('FoundryServicesName'))]"
       ],
       "properties": {
-        "mode": "Incremental",
-        "expressionEvaluationOptions": {
-          "scope": "inner"
+        "azPowerShellVersion": "14.0",
+        "scriptContent": "Start-Sleep -Seconds 180",
+        "timeout": "PT15M",
+        "cleanupPreference": "Always",
+        "retentionInterval": "PT1H"
+      }
+    },
+    {
+      "type": "Microsoft.CognitiveServices/accounts/deployments",
+      "apiVersion": "2023-05-01",
+      "name": "[concat(variables('FoundryServicesName'), '/gpt-5.1')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.CognitiveServices/accounts', variables('FoundryServicesName'))]",
+        "[resourceId('Microsoft.Resources/deploymentScripts', variables('foundryWaitScriptName'))]"
+      ],
+      "sku": {
+        "name": "GlobalStandard",
+        "capacity": 30
+      },
+      "properties": {
+        "model": {
+          "format": "OpenAI",
+          "name": "gpt-5.1",
+          "version": "2025-11-13"
         },
-        "parameters": {
-          "foundryServicesName": {
-            "value": "[variables('FoundryServicesName')]"
-          },
-          "foundryProjectName": {
-            "value": "[variables('FoundryProjectName')]"
-          },
-          "location": {
-            "value": "[variables('location')]"
-          }
-        },
-        "template": {
-          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
-          "contentVersion": "1.0.0.0",
-          "parameters": {
-            "foundryServicesName": {
-              "type": "string"
-            },
-            "foundryProjectName": {
-              "type": "string"
-            },
-            "location": {
-              "type": "string"
-            }
-          },
-          "resources": [
-            {
-              "type": "Microsoft.CognitiveServices/accounts/deployments",
-              "apiVersion": "2023-05-01",
-              "name": "[concat(parameters('foundryServicesName'), '/gpt-5.1')]",
-              "sku": {
-                "name": "GlobalStandard",
-                "capacity": 30
-              },
-              "properties": {
-                "model": {
-                  "format": "OpenAI",
-                  "name": "gpt-5.1",
-                  "version": "2025-11-13"
-                },
-                "versionUpgradeOption": "OnceNewDefaultVersionAvailable"
-              }
-            },
-            {
-              "type": "Microsoft.CognitiveServices/accounts/deployments",
-              "apiVersion": "2023-05-01",
-              "name": "[concat(parameters('foundryServicesName'), '/text-embedding-3-small')]",
-              "dependsOn": [
-                "[resourceId('Microsoft.CognitiveServices/accounts/deployments', parameters('foundryServicesName'), 'gpt-5.1')]"
-              ],
-              "sku": {
-                "name": "GlobalStandard",
-                "capacity": 30
-              },
-              "properties": {
-                "model": {
-                  "format": "OpenAI",
-                  "name": "text-embedding-3-small",
-                  "version": "1"
-                }
-              }
-            },
-            {
-              "type": "Microsoft.CognitiveServices/accounts/projects",
-              "apiVersion": "2025-04-01-preview",
-              "name": "[concat(parameters('foundryServicesName'), '/', parameters('foundryProjectName'))]",
-              "location": "[parameters('location')]",
-              "dependsOn": [
-                "[resourceId('Microsoft.CognitiveServices/accounts/deployments', parameters('foundryServicesName'), 'text-embedding-3-small')]"
-              ],
-              "identity": {
-                "type": "SystemAssigned"
-              },
-              "properties": {
-                "displayName": "[parameters('foundryProjectName')]",
-                "description": "Default Microsoft Foundry project"
-              }
-            }
-          ]
+        "versionUpgradeOption": "OnceNewDefaultVersionAvailable"
+      }
+    },
+    {
+      "type": "Microsoft.CognitiveServices/accounts/deployments",
+      "apiVersion": "2023-05-01",
+      "name": "[concat(variables('FoundryServicesName'), '/text-embedding-3-small')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.CognitiveServices/accounts', variables('FoundryServicesName'))]",
+        "[resourceId('Microsoft.CognitiveServices/accounts/deployments', variables('FoundryServicesName'), 'gpt-5.1')]"
+      ],
+      "sku": {
+        "name": "GlobalStandard",
+        "capacity": 30
+      },
+      "properties": {
+        "model": {
+          "format": "OpenAI",
+          "name": "text-embedding-3-small",
+          "version": "1"
         }
+      }
+    },
+
+    {
+      "type": "Microsoft.CognitiveServices/accounts/projects",
+      "apiVersion": "2025-04-01-preview",
+      "name": "[concat(variables('FoundryServicesName'), '/', variables('FoundryProjectName'))]",
+      "location": "[variables('location')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.CognitiveServices/accounts', variables('FoundryServicesName'))]",
+        "[resourceId('Microsoft.CognitiveServices/accounts/deployments', variables('FoundryServicesName'), 'text-embedding-3-small')]"
+      ],
+      "identity": {
+        "type": "SystemAssigned"
+      },
+      "properties": {
+        "displayName": "[variables('FoundryProjectName')]",
+        "description": "Default Microsoft Foundry project"
       }
     },
 
